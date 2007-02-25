@@ -130,6 +130,7 @@ int main(int argc, char** argv)
 {
   const unsigned char sense_len = 64;
   const unsigned char recv_len = TABLEAU_HEADER_LEN+TABLEAU_HPADCO_PAGE_LEN;
+  const unsigned char* chan_type_map[4] = {"IDE/ATA", "SATA", "SCSI", "USB"};
   unsigned int i, j;
   int sg_fd;
   struct sg_io_hdr io_hdr;
@@ -180,6 +181,9 @@ int main(int argc, char** argv)
   }
   dev_file = argv[1];
 
+  /* XXX: What if this isn't a tableau device?
+   *      Can we detect this before we query? 
+   */
   memset(sense_b, 0, sense_len);
   memset(recv_b, 0, recv_len);
   memset(&io_hdr, 0, sizeof(struct sg_io_hdr));
@@ -201,6 +205,7 @@ int main(int argc, char** argv)
   }
   close(sg_fd);
 
+  /*
   j = 0;
   for(i = 0; i < recv_len; i++)
   {
@@ -210,7 +215,8 @@ int main(int argc, char** argv)
     j++;
   }
   printf("\n");
-  
+  */  
+
   res_len = recv_b[1];
   res_sig = (recv_b[2]<<8) | recv_b[3];
   if((res_len != TABLEAU_HEADER_LEN) 
@@ -221,13 +227,20 @@ int main(int argc, char** argv)
     bailOut(2, "ERROR: Response signature mismatch.\n");
   
   printf("## Bridge Information ##\n");
-  /* XXX: need to print these 5 fields */
+
   chan_index = (recv_b[6] >> 4) & 0x0F;
   chan_type = recv_b[6] & 0x0F;
+
+  printf("chan_index: 0x%.2X\n", chan_index);
+  printf("chan_type: %s\n", chan_type_map[chan_type]);
   
   writes_permitted = (recv_b[7] & 0x02) ? true : false;
   declare_write_blocked = (recv_b[7] & 0x04) ? true : false;
   declare_write_errors = (recv_b[7] & 0x08) ? true : false;
+
+  printf("writes_permitted: %s\n", writes_permitted ? "TRUE" : "FALSE");
+  printf("declare_write_blocked: %s\n", declare_write_blocked ? "TRUE" : "FALSE");
+  printf("declare_write_errors: %s\n", declare_write_blocked ? "TRUE" : "FALSE");
   
   printf("bridge_serial: ");
   for (i=0; i < 8; i++)
@@ -302,26 +315,26 @@ int main(int argc, char** argv)
     printf("dco_support: %s\n", security_support ? "TRUE" : "FALSE");
 
     drive_capacity = (recv_b[TABLEAU_HEADER_LEN+8] << 24)
-      & (recv_b[TABLEAU_HEADER_LEN+9] << 16)
-      & (recv_b[TABLEAU_HEADER_LEN+10] << 8)
-      & recv_b[TABLEAU_HEADER_LEN+11];
+      | (recv_b[TABLEAU_HEADER_LEN+9] << 16)
+      | (recv_b[TABLEAU_HEADER_LEN+10] << 8)
+      | recv_b[TABLEAU_HEADER_LEN+11];
     printf("drive_capacity: %u\n", drive_capacity);
     
     if(hpa_support && hpa_in_use)
     {
       hpa_capacity = (recv_b[TABLEAU_HEADER_LEN+16] << 24)
-	& (recv_b[TABLEAU_HEADER_LEN+17] << 16)
-	& (recv_b[TABLEAU_HEADER_LEN+18] << 8)
-	& recv_b[TABLEAU_HEADER_LEN+19];
+	| (recv_b[TABLEAU_HEADER_LEN+17] << 16)
+	| (recv_b[TABLEAU_HEADER_LEN+18] << 8)
+	| recv_b[TABLEAU_HEADER_LEN+19];
       printf("hpa_capacity: %u\n", hpa_capacity);
     }
 
     if(dco_support && dco_in_use)
     {
       dco_capacity = (recv_b[TABLEAU_HEADER_LEN+24] << 24)
-	& (recv_b[TABLEAU_HEADER_LEN+25] << 16)
-	& (recv_b[TABLEAU_HEADER_LEN+26] << 8)
-	& recv_b[TABLEAU_HEADER_LEN+27];
+	| (recv_b[TABLEAU_HEADER_LEN+25] << 16)
+	| (recv_b[TABLEAU_HEADER_LEN+26] << 8)
+	| recv_b[TABLEAU_HEADER_LEN+27];
       printf("dco_capacity: %u\n", dco_capacity);
     }
   }
