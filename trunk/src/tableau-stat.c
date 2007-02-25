@@ -320,23 +320,17 @@ int main(int argc, char** argv)
       | recv_b[TABLEAU_HEADER_LEN+11];
     printf("drive_capacity: %u\n", drive_capacity);
     
-    if(hpa_support && hpa_in_use)
-    {
-      hpa_capacity = (recv_b[TABLEAU_HEADER_LEN+16] << 24)
-	| (recv_b[TABLEAU_HEADER_LEN+17] << 16)
-	| (recv_b[TABLEAU_HEADER_LEN+18] << 8)
-	| recv_b[TABLEAU_HEADER_LEN+19];
-      printf("hpa_capacity: %u\n", hpa_capacity);
-    }
+    hpa_capacity = (recv_b[TABLEAU_HEADER_LEN+16] << 24)
+      | (recv_b[TABLEAU_HEADER_LEN+17] << 16)
+      | (recv_b[TABLEAU_HEADER_LEN+18] << 8)
+      | recv_b[TABLEAU_HEADER_LEN+19];
+    printf("hpa_capacity: %u\n", hpa_capacity);
 
-    if(dco_support && dco_in_use)
-    {
-      dco_capacity = (recv_b[TABLEAU_HEADER_LEN+24] << 24)
-	| (recv_b[TABLEAU_HEADER_LEN+25] << 16)
-	| (recv_b[TABLEAU_HEADER_LEN+26] << 8)
-	| recv_b[TABLEAU_HEADER_LEN+27];
-      printf("dco_capacity: %u\n", dco_capacity);
-    }
+    dco_capacity = (recv_b[TABLEAU_HEADER_LEN+24] << 24)
+      | (recv_b[TABLEAU_HEADER_LEN+25] << 16)
+      | (recv_b[TABLEAU_HEADER_LEN+26] << 8)
+      | recv_b[TABLEAU_HEADER_LEN+27];
+    printf("dco_capacity: %u\n", dco_capacity);
   }
   return 0;
 }
