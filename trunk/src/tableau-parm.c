@@ -46,7 +46,7 @@ void usage()
 {
   fprintf(stderr, "Usage: tableau-parm <DEVICE>\n");
   fprintf(stderr, "Version: 0.0.1\n");
-  fprintf(stderr, "DEVICE\tA SCSI drive device, such as /dev/sd?\n");
+  fprintf(stderr, "\tDEVICE\t\tA SCSI block device, such as /dev/sd?\n");
   fprintf(stderr, "\n");
 }
 
@@ -180,8 +180,8 @@ int main(int argc, char** argv)
   
   if(argc != 2)
   {
-    usage();
     fprintf(stderr, "ERROR: Requires exactly one argument.\n");
+    usage();
     exit(1);
   }
   dev_file = argv[1];
