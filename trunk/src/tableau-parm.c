@@ -7,7 +7,7 @@
  * Tableau, LLC. (http://www.tableau.com/)
  *
  * Copyright (C) 2007 Timothy D. Morgan
- * Copyright (C) 1999 D. Gilbert
+ * Copyright (C) 1999,2001 D. Gilbert
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,27 +23,31 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  
  *
- * $Id: $
+ * $Id$
  */
 
-
-#include <sys/ioctl.h>
-#include <sys/types.h>
-#include <scsi/sg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <sys/types.h>
 #include <fcntl.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <scsi/sg.h>
 
 
+#define TABLEAU_SCSI_CMD 0xEC
 #define TABLEAU_HEADER_LEN 120
 #define TABLEAU_HPADCO_PAGE_LEN 32
 #define TABLEAU_RESPONSE_SIG 0x0ECC
 
 void usage()
 {
-  printf("ERROR: Requires exactly one argument.\n");
+  fprintf(stderr, "Usage: tableau-parm <DEVICE>\n");
+  fprintf(stderr, "Version: 0.0.1\n");
+  fprintf(stderr, "DEVICE\tA SCSI drive device, such as /dev/sd?\n");
+  fprintf(stderr, "\n");
 }
 
 void bailOut(int code, char* message)
@@ -116,7 +120,7 @@ static char* quote_buffer(const unsigned char* str,
 }
 
 
-char* convertStringField(const char* f, unsigned short flen)
+char* convertStringField(const unsigned char* f, unsigned short flen)
 {
   int i;
   for(i=flen-1; (i >= 0) && (f[i] == ' '); i--)
@@ -125,21 +129,22 @@ char* convertStringField(const char* f, unsigned short flen)
   return quote_buffer(f, i+1, "");
 }
 
+#define SENSE_LEN 64
+#define RECV_LEN 255
 
 int main(int argc, char** argv)
 {
-  const unsigned char sense_len = 64;
-  const unsigned char recv_len = TABLEAU_HEADER_LEN+TABLEAU_HPADCO_PAGE_LEN;
-  const unsigned char* chan_type_map[4] = {"IDE/ATA", "SATA", "SCSI", "USB"};
-  unsigned int i, j;
+  unsigned char next_page_off = 0;
+  const char* chan_type_map[4] = {"IDE/ATA", "SATA", "SCSI", "USB"};
+  unsigned int i;
   int sg_fd;
   struct sg_io_hdr io_hdr;
   char* dev_file;
-  unsigned char sense_b[sense_len];
-  unsigned char recv_b[recv_len];
-  unsigned char tableau_cmd_blk[] = {0xec, 0, 0, 0, recv_len, 0};
+  unsigned char sense_b[SENSE_LEN];
+  unsigned char recv_b[RECV_LEN];
+  unsigned char tableau_cmd_blk[] = {TABLEAU_SCSI_CMD, 0, 0, 0, RECV_LEN, 0};
 
-  /* response fields
+  /* response fields */
   /*  common header fields */
   unsigned char res_len;
   unsigned short res_sig;
@@ -149,7 +154,7 @@ int main(int argc, char** argv)
   bool declare_write_blocked;
   bool declare_write_errors;
 
-  char* bridge_serial;
+  /*char* bridge_serial;*/
   char* bridge_vendor;
   char* bridge_model;
   char* firmware_date;
@@ -173,10 +178,10 @@ int main(int argc, char** argv)
   unsigned int hpa_capacity;
   unsigned int dco_capacity;
   
-
   if(argc != 2)
   {
     usage();
+    fprintf(stderr, "ERROR: Requires exactly one argument.\n");
     exit(1);
   }
   dev_file = argv[1];
@@ -184,60 +189,79 @@ int main(int argc, char** argv)
   /* XXX: What if this isn't a tableau device?
    *      Can we detect this before we query? 
    */
-  memset(sense_b, 0, sense_len);
-  memset(recv_b, 0, recv_len);
+  memset(sense_b, 0, SENSE_LEN);
+  memset(recv_b, 0, RECV_LEN);
   memset(&io_hdr, 0, sizeof(struct sg_io_hdr));
   io_hdr.interface_id = 'S';
   io_hdr.cmdp = tableau_cmd_blk;
   io_hdr.cmd_len = sizeof(tableau_cmd_blk);
   io_hdr.sbp = sense_b;
-  io_hdr.mx_sb_len = sense_len;
+  io_hdr.mx_sb_len = SENSE_LEN;
   io_hdr.dxfer_direction = SG_DXFER_FROM_DEV;
   io_hdr.dxferp = recv_b;
-  io_hdr.dxfer_len = recv_len;
+  io_hdr.dxfer_len = RECV_LEN;
   io_hdr.timeout = 30000; /* 30 sec */
 
   sg_fd = open(dev_file, O_RDONLY);
   if (ioctl(sg_fd, SG_IO, &io_hdr) < 0) 
   {
-    perror("ioctl failed");
+    perror("ERROR: ioctl failed");
     bailOut(3, "ERROR: Could not query device.\n");
   }
   close(sg_fd);
 
-  /*
-  j = 0;
-  for(i = 0; i < recv_len; i++)
+  /* Check for errors coming from the device */
+  if ((io_hdr.info & SG_INFO_OK_MASK) != SG_INFO_OK) 
   {
-    printf(" %.2X", recv_b[i]);
-    if((j %= 16) == 15)
+    if (io_hdr.sb_len_wr > 0) 
+    {
+      fprintf(stderr, "ERROR: INQUIRY sense data:");
+      for (i = 0; i < io_hdr.sb_len_wr; i++)
+      {
+	if((i % 16) == 0)
+	  fprintf(stderr, "\n");
+	fprintf(stderr, " %.2X", sense_b[i]);
+      }
+      fprintf(stderr, "\n");
+    }
+    if (io_hdr.masked_status)
+      fprintf(stderr, "ERROR: INQUIRY SCSI status=%X\n", io_hdr.status);
+    if (io_hdr.host_status)
+      fprintf(stderr, "ERROR: INQUIRY host_status=%X\n", io_hdr.host_status);
+    if (io_hdr.driver_status)
+      fprintf(stderr, "ERROR: INQUIRY driver_status=%X\n", io_hdr.driver_status);
+
+    bailOut(5, "ERROR: SCSI response not OK.  Cannot continue.\n");
+  }
+
+  /*
+  printf("DEBUG: Response data:");
+  for(i = 0; i < RECV_LEN; i++)
+  {
+    if((i % 16) == 0)
       printf("\n");
-    j++;
+    printf(" %.2X", recv_b[i]);
   }
   printf("\n");
   */  
 
   res_len = recv_b[1];
   res_sig = (recv_b[2]<<8) | recv_b[3];
-  if((res_len != TABLEAU_HEADER_LEN) 
-     && (res_len != TABLEAU_HEADER_LEN+TABLEAU_HPADCO_PAGE_LEN))
+  if (res_len < TABLEAU_HEADER_LEN)
     bailOut(2, "ERROR: Response length not valid for any known response.\n");
 
   if(res_sig != TABLEAU_RESPONSE_SIG)
     bailOut(2, "ERROR: Response signature mismatch.\n");
   
   printf("## Bridge Information ##\n");
-
   chan_index = (recv_b[6] >> 4) & 0x0F;
   chan_type = recv_b[6] & 0x0F;
-
   printf("chan_index: 0x%.2X\n", chan_index);
   printf("chan_type: %s\n", chan_type_map[chan_type]);
   
   writes_permitted = (recv_b[7] & 0x02) ? true : false;
   declare_write_blocked = (recv_b[7] & 0x04) ? true : false;
   declare_write_errors = (recv_b[7] & 0x08) ? true : false;
-
   printf("writes_permitted: %s\n", writes_permitted ? "TRUE" : "FALSE");
   printf("declare_write_blocked: %s\n", declare_write_blocked ? "TRUE" : "FALSE");
   printf("declare_write_errors: %s\n", declare_write_blocked ? "TRUE" : "FALSE");
@@ -264,7 +288,6 @@ int main(int argc, char** argv)
   free(firmware_time);
   
   printf("\n## Drive Information ##\n");
-
   drive_vendor = convertStringField(recv_b+56, 8);
   printf("drive_vendor: %s\n", drive_vendor);
   free(drive_vendor);
@@ -281,56 +304,77 @@ int main(int argc, char** argv)
   printf("drive_revision: %s\n", drive_revision);
   free(drive_revision);
 
-  if(res_len == TABLEAU_HEADER_LEN+TABLEAU_HPADCO_PAGE_LEN)
-  { /* HPA/DCO page is available */
-    printf("\n## Drive HPA/DCO/Security Information ##\n");
-    page_id = recv_b[TABLEAU_HEADER_LEN];
-    if(page_id != 0)
+  next_page_off = TABLEAU_HEADER_LEN;
+  /* This is more like an if statement, but later additional 
+   * optional pages may be added to Tableau firmwares.
+   */
+  while (next_page_off < res_len)
+  {
+    /* Make sure we can read the id and length of next page */
+    if(next_page_off+2 > res_len)
     {
-      fprintf(stderr, "ERROR: Expected HPA/DCO page, but "
-	      "found page_id=0x%X instead.\n", page_id);
+      fprintf(stderr, "ERROR: Next page exists, but not large"
+	      " enough to be valid.\n");
       bailOut(4, "ERROR: Not attempting to parse additional page.\n");
     }
-    
-    page_len = recv_b[TABLEAU_HEADER_LEN+1];
-    if(page_len != TABLEAU_HPADCO_PAGE_LEN)
+
+    page_id = recv_b[next_page_off];
+    page_len = recv_b[next_page_off+1];
+
+    switch (page_id)
     {
-      fprintf(stderr, "ERROR: HPA/DCO page does not have expected "
-	      "length (0x%X).\n", page_len);
+    case 0x00:
+      /* HPA/DCO page */
+      printf("\n## Drive HPA/DCO/Security Information ##\n");
+      if(page_len != TABLEAU_HPADCO_PAGE_LEN)
+      {
+	fprintf(stderr, "ERROR: HPA/DCO page does not have expected "
+		"length (0x%X).\n", page_len);
+	bailOut(4, "ERROR: Not attempting to parse additional page.\n");      
+      }
+      
+      security_in_use = (recv_b[TABLEAU_HEADER_LEN+2] & 0x20) ? true : false;
+      security_support = (recv_b[TABLEAU_HEADER_LEN+2] & 0x10) ? true : false;
+      hpa_in_use = (recv_b[TABLEAU_HEADER_LEN+2] & 0x08) ? true : false;
+      hpa_support = (recv_b[TABLEAU_HEADER_LEN+2] & 0x04) ? true : false;
+      dco_in_use = (recv_b[TABLEAU_HEADER_LEN+2] & 0x02) ? true : false;
+      dco_support = (recv_b[TABLEAU_HEADER_LEN+2] & 0x01) ? true : false;
+      
+      printf("security_in_use: %s\n", security_in_use ? "TRUE" : "FALSE");
+      printf("security_support: %s\n", security_support ? "TRUE" : "FALSE");
+      printf("hpa_in_use: %s\n", security_in_use ? "TRUE" : "FALSE");
+      printf("hpa_support: %s\n", security_support ? "TRUE" : "FALSE");
+      printf("dco_in_use: %s\n", security_in_use ? "TRUE" : "FALSE");
+      printf("dco_support: %s\n", security_support ? "TRUE" : "FALSE");
+      
+      drive_capacity = (recv_b[TABLEAU_HEADER_LEN+8] << 24)
+	| (recv_b[TABLEAU_HEADER_LEN+9] << 16)
+	| (recv_b[TABLEAU_HEADER_LEN+10] << 8)
+	| recv_b[TABLEAU_HEADER_LEN+11];
+      printf("drive_capacity: %u\n", drive_capacity);
+      
+      hpa_capacity = (recv_b[TABLEAU_HEADER_LEN+16] << 24)
+	| (recv_b[TABLEAU_HEADER_LEN+17] << 16)
+	| (recv_b[TABLEAU_HEADER_LEN+18] << 8)
+	| recv_b[TABLEAU_HEADER_LEN+19];
+      printf("hpa_capacity: %u\n", hpa_capacity);
+      
+      dco_capacity = (recv_b[TABLEAU_HEADER_LEN+24] << 24)
+	| (recv_b[TABLEAU_HEADER_LEN+25] << 16)
+	| (recv_b[TABLEAU_HEADER_LEN+26] << 8)
+	| recv_b[TABLEAU_HEADER_LEN+27];
+      printf("dco_capacity: %u\n", dco_capacity);
+
+      break;
+
+    default:
+      /* Unknown page */
+      fprintf(stderr, 
+	      "ERROR: Encountered unknown info page (0x%.2X).", page_id);
       bailOut(4, "ERROR: Not attempting to parse additional page.\n");      
     }
-
-    security_in_use = (recv_b[TABLEAU_HEADER_LEN+2] & 0x20) ? true : false;
-    security_support = (recv_b[TABLEAU_HEADER_LEN+2] & 0x10) ? true : false;
-    hpa_in_use = (recv_b[TABLEAU_HEADER_LEN+2] & 0x08) ? true : false;
-    hpa_support = (recv_b[TABLEAU_HEADER_LEN+2] & 0x04) ? true : false;
-    dco_in_use = (recv_b[TABLEAU_HEADER_LEN+2] & 0x02) ? true : false;
-    dco_support = (recv_b[TABLEAU_HEADER_LEN+2] & 0x01) ? true : false;
-
-    printf("security_in_use: %s\n", security_in_use ? "TRUE" : "FALSE");
-    printf("security_support: %s\n", security_support ? "TRUE" : "FALSE");
-    printf("hpa_in_use: %s\n", security_in_use ? "TRUE" : "FALSE");
-    printf("hpa_support: %s\n", security_support ? "TRUE" : "FALSE");
-    printf("dco_in_use: %s\n", security_in_use ? "TRUE" : "FALSE");
-    printf("dco_support: %s\n", security_support ? "TRUE" : "FALSE");
-
-    drive_capacity = (recv_b[TABLEAU_HEADER_LEN+8] << 24)
-      | (recv_b[TABLEAU_HEADER_LEN+9] << 16)
-      | (recv_b[TABLEAU_HEADER_LEN+10] << 8)
-      | recv_b[TABLEAU_HEADER_LEN+11];
-    printf("drive_capacity: %u\n", drive_capacity);
-    
-    hpa_capacity = (recv_b[TABLEAU_HEADER_LEN+16] << 24)
-      | (recv_b[TABLEAU_HEADER_LEN+17] << 16)
-      | (recv_b[TABLEAU_HEADER_LEN+18] << 8)
-      | recv_b[TABLEAU_HEADER_LEN+19];
-    printf("hpa_capacity: %u\n", hpa_capacity);
-
-    dco_capacity = (recv_b[TABLEAU_HEADER_LEN+24] << 24)
-      | (recv_b[TABLEAU_HEADER_LEN+25] << 16)
-      | (recv_b[TABLEAU_HEADER_LEN+26] << 8)
-      | recv_b[TABLEAU_HEADER_LEN+27];
-    printf("dco_capacity: %u\n", dco_capacity);
+    next_page_off += page_len;
   }
+
   return 0;
 }
