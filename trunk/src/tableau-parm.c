@@ -203,6 +203,12 @@ int main(int argc, char** argv)
   io_hdr.timeout = 30000; /* 30 sec */
 
   sg_fd = open(dev_file, O_RDONLY);
+  if(sg_fd == -1)
+  {
+    perror("ERROR: open failed");
+    bailOut(3, "ERROR: Could not open device.\n");
+  }
+
   if (ioctl(sg_fd, SG_IO, &io_hdr) < 0) 
   {
     perror("ERROR: ioctl failed");
