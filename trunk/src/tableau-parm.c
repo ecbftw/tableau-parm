@@ -42,6 +42,10 @@
 #define TABLEAU_HPADCO_PAGE_LEN 32
 #define TABLEAU_RESPONSE_SIG 0x0ECC
 
+#define SENSE_LEN 64
+#define RECV_LEN 255
+
+
 void usage()
 {
   fprintf(stderr, "Usage: tableau-parm <DEVICE>\n");
@@ -131,10 +135,11 @@ char* convertStringField(const unsigned char* f, unsigned short flen)
 
 
 
-void printQueryResponse(const unsigned char* recv_b)
+const unsigned char* printQueryResponse(const unsigned char* recv_b)
 {
   unsigned int i;
   unsigned char next_page_off = 0;
+  const unsigned char* ret_val = NULL;
   const char* chan_type_map[4] = {"IDE/ATA", "SATA", "SCSI", "USB"};
 
   /* response fields */
@@ -168,7 +173,7 @@ void printQueryResponse(const unsigned char* recv_b)
   unsigned int hpa_capacity;
   unsigned int dco_capacity;
   
-  /*
+  
   printf("DEBUG: Response data:");
   for(i = 0; i < RECV_LEN; i++)
   {
@@ -177,7 +182,7 @@ void printQueryResponse(const unsigned char* recv_b)
     printf(" %.2X", recv_b[i]);
   }
   printf("\n");
-  */  
+    
 
   res_len = recv_b[1];
   if (res_len < TABLEAU_HEADER_LEN)
@@ -299,6 +304,9 @@ void printQueryResponse(const unsigned char* recv_b)
 	| recv_b[TABLEAU_HEADER_LEN+27];
       printf("dco_capacity: %u\n", dco_capacity);
 
+      if(dco_capacity != hpa_capacity)
+	ret_val = recv_b+(TABLEAU_HEADER_LEN+28);
+
       break;
 
     default:
@@ -309,10 +317,13 @@ void printQueryResponse(const unsigned char* recv_b)
     }
     next_page_off += page_len;
   }
+
+  return ret_val;
 }
 
 
-int sendCommand(int dev_fd, unsigned char* cmd_block, 
+int sendCommand(int dev_fd, 
+		unsigned char* cmd_block, unsigned int cmd_block_len,
 		unsigned char* recv_b, unsigned int recv_len,
 		unsigned char* sense_b, unsigned int sense_len)
 {
@@ -324,11 +335,12 @@ int sendCommand(int dev_fd, unsigned char* cmd_block,
   memset(&io_hdr, 0, sizeof(struct sg_io_hdr));
   io_hdr.interface_id = 'S';
   io_hdr.cmdp = cmd_block;
-  io_hdr.cmd_len = sizeof(cmd_block);
+  io_hdr.cmd_len = cmd_block_len;
   io_hdr.sbp = sense_b;
   io_hdr.mx_sb_len = sense_len;
   io_hdr.dxferp = recv_b;
   io_hdr.dxfer_len = recv_len;
+  /*io_hdr.dxfer_direction = (cmd_block_len == 6) ? SG_DXFER_FROM_DEV : SG_DXFER_TO_FROM_DEV;*/
   io_hdr.dxfer_direction = SG_DXFER_FROM_DEV;
   io_hdr.timeout = 30000; /* 30 sec */
 
@@ -369,24 +381,33 @@ int sendCommand(int dev_fd, unsigned char* cmd_block,
 
 
 
-#define SENSE_LEN 64
-#define RECV_LEN 255
 
 int main(int argc, char** argv)
 {
   int sg_fd, cmd_ret;
   char* dev_file;
+  bool remove_dco = false;
   unsigned char recv_b[RECV_LEN];
   unsigned char sense_b[SENSE_LEN];
-  unsigned char tableau_cmd_blk[] = {TABLEAU_SCSI_CMD, 0, 0, 0, RECV_LEN, 0};
+  unsigned char tableau_query_cmd[] = {TABLEAU_SCSI_CMD, 0, 0, 0, RECV_LEN, 0};
+  const unsigned char* dco_challenge_key;
+  unsigned char tableau_dco_restore_cmd[] = {TABLEAU_SCSI_CMD, 0, 1, 0, 0, 
+					     0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0};
 
-  if(argc != 2)
+  if(argc < 2 || argc > 3)
   {
-    fprintf(stderr, "ERROR: Requires exactly one argument.\n");
+    fprintf(stderr, "ERROR: Wrong number of arguments.\n");
     usage();
     exit(1);
   }
-  dev_file = argv[1];
+
+  if (strcmp(argv[1], "-r") == 0)
+  {
+    remove_dco = true;
+    dev_file = argv[2];
+  }
+  else
+    dev_file = argv[1];
 
   /* XXX: What if this isn't a tableau device?
    *      Can we detect this before we query? 
@@ -398,13 +419,52 @@ int main(int argc, char** argv)
     bailOut(3, "ERROR: Could not open device.\n");
   }
 
-  cmd_ret = sendCommand(sg_fd, tableau_cmd_blk, recv_b, RECV_LEN, sense_b, SENSE_LEN);
-  close(sg_fd);
+  cmd_ret = sendCommand(sg_fd, tableau_query_cmd, 6, 
+			recv_b, RECV_LEN, sense_b, SENSE_LEN);
 
   if(cmd_ret != 0)
-    bailOut(cmd_ret, "ERROR: Command failed.\n");    
+    bailOut(cmd_ret, "ERROR: Query command failed.\n");    
 
-  printQueryResponse(recv_b);
+  dco_challenge_key = printQueryResponse(recv_b);
+
+  if(dco_challenge_key != NULL)
+    printf("dco_challenge_key: %.2X %.2X %.2X %.2X\n", 
+	   dco_challenge_key[0], dco_challenge_key[1], 
+	   dco_challenge_key[2], dco_challenge_key[3]);
+
+  if(remove_dco)
+  {
+    if(dco_challenge_key != NULL)
+    {
+      printf("\n## DCO detected, attempting to remove as requested. ##\n");
+      tableau_dco_restore_cmd[5] = dco_challenge_key[0];
+      tableau_dco_restore_cmd[6] = dco_challenge_key[1];
+      tableau_dco_restore_cmd[7] = dco_challenge_key[2];
+      tableau_dco_restore_cmd[8] = dco_challenge_key[3];
+      
+      cmd_ret = sendCommand(sg_fd, tableau_dco_restore_cmd, 12, 
+			    recv_b, RECV_LEN, sense_b, SENSE_LEN);
+
+      if(cmd_ret != 0)
+	bailOut(cmd_ret, "ERROR: DCO restore command failed.\n");
+
+      
+      printf("## DCO removal requested, re-querying device. ##\n");
+      cmd_ret = sendCommand(sg_fd, tableau_query_cmd, 6, 
+			    recv_b, RECV_LEN, sense_b, SENSE_LEN);
+      
+      if(cmd_ret != 0)
+	bailOut(cmd_ret, "ERROR: Requery command failed.\n");    
+
+      dco_challenge_key = printQueryResponse(recv_b);
+      if(dco_challenge_key != NULL)
+	fprintf(stderr, 
+		"ERROR: Apparently, DCO did not get removed as requested!\n");
+    }
+    else
+      printf("## DCO removal requested, but DCO not found! Quitting. ##\n");
+  }
+  close(sg_fd);
 
   return 0;
 }
