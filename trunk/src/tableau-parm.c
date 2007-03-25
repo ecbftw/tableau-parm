@@ -45,7 +45,7 @@
 void usage()
 {
   fprintf(stderr, "Usage: tableau-parm <DEVICE>\n");
-  fprintf(stderr, "Version: 0.0.1\n");
+  fprintf(stderr, "Version: 0.0.2\n");
   fprintf(stderr, "\tDEVICE\t\tA SCSI block device, such as /dev/sd?\n");
   fprintf(stderr, "\n");
 }
@@ -129,20 +129,13 @@ char* convertStringField(const unsigned char* f, unsigned short flen)
   return quote_buffer(f, i+1, "");
 }
 
-#define SENSE_LEN 64
-#define RECV_LEN 255
 
-int main(int argc, char** argv)
+
+void printQueryResponse(const unsigned char* recv_b)
 {
+  unsigned int i;
   unsigned char next_page_off = 0;
   const char* chan_type_map[4] = {"IDE/ATA", "SATA", "SCSI", "USB"};
-  unsigned int i;
-  int sg_fd;
-  struct sg_io_hdr io_hdr;
-  char* dev_file;
-  unsigned char sense_b[SENSE_LEN];
-  unsigned char recv_b[RECV_LEN];
-  unsigned char tableau_cmd_blk[] = {TABLEAU_SCSI_CMD, 0, 0, 0, RECV_LEN, 0};
 
   /* response fields */
   /*  common header fields */
@@ -167,79 +160,14 @@ int main(int argc, char** argv)
   /*  HPA/DCO page fields */
   unsigned char page_id;
   unsigned char page_len;
-  bool security_in_use;
-  bool security_support;
-  bool hpa_in_use;
-  bool hpa_support;
-  bool dco_in_use;
-  bool dco_support;
+  bool security_in_use, security_support;
+  bool hpa_in_use, hpa_support;
+  bool dco_in_use, dco_support;
   /* XXX: is this user capacity, or real capacity? */
   unsigned int drive_capacity;
   unsigned int hpa_capacity;
   unsigned int dco_capacity;
   
-  if(argc != 2)
-  {
-    fprintf(stderr, "ERROR: Requires exactly one argument.\n");
-    usage();
-    exit(1);
-  }
-  dev_file = argv[1];
-
-  /* XXX: What if this isn't a tableau device?
-   *      Can we detect this before we query? 
-   */
-  memset(sense_b, 0, SENSE_LEN);
-  memset(recv_b, 0, RECV_LEN);
-  memset(&io_hdr, 0, sizeof(struct sg_io_hdr));
-  io_hdr.interface_id = 'S';
-  io_hdr.cmdp = tableau_cmd_blk;
-  io_hdr.cmd_len = sizeof(tableau_cmd_blk);
-  io_hdr.sbp = sense_b;
-  io_hdr.mx_sb_len = SENSE_LEN;
-  io_hdr.dxfer_direction = SG_DXFER_FROM_DEV;
-  io_hdr.dxferp = recv_b;
-  io_hdr.dxfer_len = RECV_LEN;
-  io_hdr.timeout = 30000; /* 30 sec */
-
-  sg_fd = open(dev_file, O_RDONLY);
-  if(sg_fd == -1)
-  {
-    perror("ERROR: open failed");
-    bailOut(3, "ERROR: Could not open device.\n");
-  }
-
-  if (ioctl(sg_fd, SG_IO, &io_hdr) < 0) 
-  {
-    perror("ERROR: ioctl failed");
-    bailOut(3, "ERROR: Could not query device.\n");
-  }
-  close(sg_fd);
-
-  /* Check for errors coming from the device */
-  if ((io_hdr.info & SG_INFO_OK_MASK) != SG_INFO_OK) 
-  {
-    if (io_hdr.sb_len_wr > 0) 
-    {
-      fprintf(stderr, "ERROR: INQUIRY sense data:");
-      for (i = 0; i < io_hdr.sb_len_wr; i++)
-      {
-	if((i % 16) == 0)
-	  fprintf(stderr, "\n");
-	fprintf(stderr, " %.2X", sense_b[i]);
-      }
-      fprintf(stderr, "\n");
-    }
-    if (io_hdr.masked_status)
-      fprintf(stderr, "ERROR: INQUIRY SCSI status=%X\n", io_hdr.status);
-    if (io_hdr.host_status)
-      fprintf(stderr, "ERROR: INQUIRY host_status=%X\n", io_hdr.host_status);
-    if (io_hdr.driver_status)
-      fprintf(stderr, "ERROR: INQUIRY driver_status=%X\n", io_hdr.driver_status);
-
-    bailOut(5, "ERROR: SCSI response not OK.  Cannot continue.\n");
-  }
-
   /*
   printf("DEBUG: Response data:");
   for(i = 0; i < RECV_LEN; i++)
@@ -252,10 +180,10 @@ int main(int argc, char** argv)
   */  
 
   res_len = recv_b[1];
-  res_sig = (recv_b[2]<<8) | recv_b[3];
   if (res_len < TABLEAU_HEADER_LEN)
     bailOut(2, "ERROR: Response length not valid for any known response.\n");
 
+  res_sig = (recv_b[2]<<8) | recv_b[3];
   if(res_sig != TABLEAU_RESPONSE_SIG)
     bailOut(2, "ERROR: Response signature mismatch.\n");
   
@@ -381,6 +309,102 @@ int main(int argc, char** argv)
     }
     next_page_off += page_len;
   }
+}
+
+
+int sendCommand(int dev_fd, unsigned char* cmd_block, 
+		unsigned char* recv_b, unsigned int recv_len,
+		unsigned char* sense_b, unsigned int sense_len)
+{
+  struct sg_io_hdr io_hdr;
+  unsigned int i;
+
+  memset(recv_b, 0, recv_len);
+  memset(sense_b, 0, sense_len);
+  memset(&io_hdr, 0, sizeof(struct sg_io_hdr));
+  io_hdr.interface_id = 'S';
+  io_hdr.cmdp = cmd_block;
+  io_hdr.cmd_len = sizeof(cmd_block);
+  io_hdr.sbp = sense_b;
+  io_hdr.mx_sb_len = sense_len;
+  io_hdr.dxferp = recv_b;
+  io_hdr.dxfer_len = recv_len;
+  io_hdr.dxfer_direction = SG_DXFER_FROM_DEV;
+  io_hdr.timeout = 30000; /* 30 sec */
+
+  if (ioctl(dev_fd, SG_IO, &io_hdr) < 0) 
+  {
+    perror("ERROR: ioctl failed");
+    fprintf(stderr, "ERROR: Could not query device.\n");
+    return 3;
+  }
+
+  /* Check for errors coming from the device */
+  if ((io_hdr.info & SG_INFO_OK_MASK) != SG_INFO_OK) 
+  {
+    if (io_hdr.sb_len_wr > 0) 
+    {
+      fprintf(stderr, "ERROR: INQUIRY sense data:");
+      for (i = 0; i < io_hdr.sb_len_wr; i++)
+      {
+	if((i % 16) == 0)
+	  fprintf(stderr, "\n");
+	fprintf(stderr, " %.2X", sense_b[i]);
+      }
+      fprintf(stderr, "\n");
+    }
+    if (io_hdr.masked_status)
+      fprintf(stderr, "ERROR: INQUIRY SCSI status=%X\n", io_hdr.status);
+    if (io_hdr.host_status)
+      fprintf(stderr, "ERROR: INQUIRY host_status=%X\n", io_hdr.host_status);
+    if (io_hdr.driver_status)
+      fprintf(stderr, "ERROR: INQUIRY driver_status=%X\n", io_hdr.driver_status);
+
+    fprintf(stderr, "ERROR: SCSI response not OK.  Cannot continue.\n");
+    return 5;
+  }  
+
+  return 0;
+}
+
+
+
+#define SENSE_LEN 64
+#define RECV_LEN 255
+
+int main(int argc, char** argv)
+{
+  int sg_fd, cmd_ret;
+  char* dev_file;
+  unsigned char recv_b[RECV_LEN];
+  unsigned char sense_b[SENSE_LEN];
+  unsigned char tableau_cmd_blk[] = {TABLEAU_SCSI_CMD, 0, 0, 0, RECV_LEN, 0};
+
+  if(argc != 2)
+  {
+    fprintf(stderr, "ERROR: Requires exactly one argument.\n");
+    usage();
+    exit(1);
+  }
+  dev_file = argv[1];
+
+  /* XXX: What if this isn't a tableau device?
+   *      Can we detect this before we query? 
+   */
+  sg_fd = open(dev_file, O_RDONLY);
+  if(sg_fd == -1)
+  {
+    perror("ERROR: open failed");
+    bailOut(3, "ERROR: Could not open device.\n");
+  }
+
+  cmd_ret = sendCommand(sg_fd, tableau_cmd_blk, recv_b, RECV_LEN, sense_b, SENSE_LEN);
+  close(sg_fd);
+
+  if(cmd_ret != 0)
+    bailOut(cmd_ret, "ERROR: Command failed.\n");    
+
+  printQueryResponse(recv_b);
 
   return 0;
 }
