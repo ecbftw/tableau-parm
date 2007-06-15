@@ -49,7 +49,7 @@
 void usage()
 {
   fprintf(stderr, "Usage: tableau-parm <DEVICE>\n");
-  fprintf(stderr, "Version: 0.0.2\n");
+  fprintf(stderr, "Version: 0.0.2 (ALPHA)\n");
   fprintf(stderr, "\tDEVICE\t\tA SCSI block device, such as /dev/sd?\n");
   fprintf(stderr, "\n");
 }
@@ -173,7 +173,7 @@ const unsigned char* printQueryResponse(const unsigned char* recv_b)
   unsigned int hpa_capacity;
   unsigned int dco_capacity;
   
-  
+  /*  
   printf("DEBUG: Response data:");
   for(i = 0; i < RECV_LEN; i++)
   {
@@ -182,7 +182,7 @@ const unsigned char* printQueryResponse(const unsigned char* recv_b)
     printf(" %.2X", recv_b[i]);
   }
   printf("\n");
-    
+  */
 
   res_len = recv_b[1];
   if (res_len < TABLEAU_HEADER_LEN)
