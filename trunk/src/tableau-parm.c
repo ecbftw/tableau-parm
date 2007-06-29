@@ -172,9 +172,10 @@ const unsigned char* printQueryResponse(const unsigned char* recv_b)
   bool security_in_use, security_support;
   bool hpa_in_use, hpa_support;
   bool dco_in_use, dco_support;
-  /* XXX: is this user capacity, or real capacity? */
+  /*   this is user capacity */
   unsigned int drive_capacity;
   unsigned int hpa_capacity;
+  /*   this is real capacity */
   unsigned int dco_capacity;
   
   /*  
@@ -285,10 +286,10 @@ const unsigned char* printQueryResponse(const unsigned char* recv_b)
       
       printf("security_in_use: %s\n", security_in_use ? "TRUE" : "FALSE");
       printf("security_support: %s\n", security_support ? "TRUE" : "FALSE");
-      printf("hpa_in_use: %s\n", security_in_use ? "TRUE" : "FALSE");
-      printf("hpa_support: %s\n", security_support ? "TRUE" : "FALSE");
-      printf("dco_in_use: %s\n", security_in_use ? "TRUE" : "FALSE");
-      printf("dco_support: %s\n", security_support ? "TRUE" : "FALSE");
+      printf("hpa_in_use: %s\n", hpa_in_use ? "TRUE" : "FALSE");
+      printf("hpa_support: %s\n", hpa_support ? "TRUE" : "FALSE");
+      printf("dco_in_use: %s\n", dco_in_use ? "TRUE" : "FALSE");
+      printf("dco_support: %s\n", dco_support ? "TRUE" : "FALSE");
       
       drive_capacity = (recv_b[TABLEAU_HEADER_LEN+8] << 24)
 	| (recv_b[TABLEAU_HEADER_LEN+9] << 16)
