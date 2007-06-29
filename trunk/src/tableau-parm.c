@@ -449,20 +449,11 @@ int main(int argc, char** argv)
 	bailOut(cmd_ret, "ERROR: DCO restore command failed.\n");
 
       
-      printf("## DCO removal requested, re-querying device. ##\n");
-      cmd_ret = sendCommand(sg_fd, tableau_query_cmd, 6, 
-			    recv_b, RECV_LEN, sense_b, SENSE_LEN);
-      
-      if(cmd_ret != 0)
-	bailOut(cmd_ret, "ERROR: Requery command failed.\n");    
-
-      dco_challenge_key = printQueryResponse(recv_b);
-      if(dco_challenge_key != NULL)
-	fprintf(stderr, 
-		"ERROR: Apparently, DCO did not get removed as requested!\n");
+      printf("## DCO removal request returned no errors.  "
+	     "You must now power cycle the drive to detect the changes. ##\n");
     }
     else
-      printf("## DCO removal requested, but DCO not found! Quitting. ##\n");
+      printf("\n## DCO removal requested, but DCO not found! Quitting. ##\n");
   }
   close(sg_fd);
 
