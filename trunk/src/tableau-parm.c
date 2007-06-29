@@ -9,6 +9,8 @@
  * Copyright (C) 2007 Timothy D. Morgan
  * Copyright (C) 1999,2001 D. Gilbert
  *
+ * XXX: switch to version 3
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2, or (at your option)
@@ -48,9 +50,11 @@
 
 void usage()
 {
-  fprintf(stderr, "Usage: tableau-parm <DEVICE>\n");
-  fprintf(stderr, "Version: 0.0.2 (ALPHA)\n");
+  fprintf(stderr, "Usage: tableau-parm [-r] <DEVICE>\n");
+  fprintf(stderr, "Version: 0.0.3 (ALPHA)\n");
   fprintf(stderr, "\tDEVICE\t\tA SCSI block device, such as /dev/sd?\n");
+  fprintf(stderr, "\t-r\t\tRemoves DCO (and possibly HPA) from the device.\n");
+  fprintf(stderr, "\t\t\tTHIS WILL MODIFY THE STATE OF THE DEVICE!!\n");
   fprintf(stderr, "\n");
 }
 
@@ -449,11 +453,11 @@ int main(int argc, char** argv)
 	bailOut(cmd_ret, "ERROR: DCO restore command failed.\n");
 
       
-      printf("## DCO removal request returned no errors.  "
-	     "You must now power cycle the drive to detect the changes. ##\n");
+      printf("## DCO removal request returned no errors. ##\n"
+	     "## You must now power cycle the drive to detect the changes. ##\n");
     }
     else
-      printf("\n## DCO removal requested, but DCO not found! Quitting. ##\n");
+      printf("\n## DCO removal requested, but DCO no found! Quitting. ##\n");
   }
   close(sg_fd);
 
