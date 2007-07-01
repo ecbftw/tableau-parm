@@ -3,27 +3,25 @@
  * via proprietary SCSI commands.  Specifically, this tool queries for 
  * any detected HPA/DCO settings on connected (S)ATA drives.
  * 
- * This program was possible due to documentation provided by 
- * Tableau, LLC. (http://www.tableau.com/)
+ * This program was only possible due to documentation and support
+ * provided by Tableau, LLC. (http://www.tableau.com/)  Tableau does not
+ * endorse or warrant this software in any way.
  *
  * Copyright (C) 2007 Timothy D. Morgan
  * Copyright (C) 1999,2001 D. Gilbert
  *
- * XXX: switch to version 3
- *
- * This program is free software; you can redistribute it and/or modify
+ * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- * 
+ * the Free Software Foundation, either version 3 of the License.
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  
+ *
+ * You should have received a copy of the GNU General Public License,
+ * version 3, along with this program.  If not, see:
+ *   http://www.gnu.org/licenses/.
  *
  * $Id$
  */
@@ -51,11 +49,18 @@
 void usage()
 {
   fprintf(stderr, "Usage: tableau-parm [-r] <DEVICE>\n");
-  fprintf(stderr, "Version: 0.0.3 (ALPHA)\n");
+  fprintf(stderr, "Version: 0.1.0\n");
   fprintf(stderr, "\tDEVICE\t\tA SCSI block device, such as /dev/sd?\n");
   fprintf(stderr, "\t-r\t\tRemoves DCO (and possibly HPA) from the device.\n");
   fprintf(stderr, "\t\t\tTHIS WILL MODIFY THE STATE OF THE DEVICE!!\n");
-  fprintf(stderr, "\n");
+  fprintf(stderr, "\n\n");
+  fprintf(stderr, "Copyright (C) 2007 Timothy D. Morgan\n");
+  fprintf(stderr, "Copyright (C) 1999,2001 D. Gilbert\n");
+  fprintf(stderr, "This program comes with ABSOLUTELY NO WARRANTY.\n");
+  fprintf(stderr, "This is free software, and you are welcome to redistribute it\n");
+  fprintf(stderr, "under the conditions of the GNU Public License, version 3.\n");
+  fprintf(stderr, "For more information, see the LICENSE file included in this\n");
+  fprintf(stderr, "software distribution, or http://www.gnu.org/licenses/.\n");
 }
 
 void bailOut(int code, char* message)
@@ -128,6 +133,7 @@ static char* quote_buffer(const unsigned char* str,
 }
 
 
+/* Trims spaces off of string fields and quotes any non-printables. */
 char* convertStringField(const unsigned char* f, unsigned short flen)
 {
   int i;
@@ -138,7 +144,7 @@ char* convertStringField(const unsigned char* f, unsigned short flen)
 }
 
 
-
+/* Returns the DCO challenge key, if a DCO is set, otherwise returns 0. */
 const unsigned char* printQueryResponse(const unsigned char* recv_b)
 {
   unsigned int i;
@@ -172,6 +178,7 @@ const unsigned char* printQueryResponse(const unsigned char* recv_b)
   bool security_in_use, security_support;
   bool hpa_in_use, hpa_support;
   bool dco_in_use, dco_support;
+  unsigned char hpa_disable_err_code;
   /*   this is user capacity */
   unsigned int drive_capacity;
   unsigned int hpa_capacity;
@@ -277,12 +284,14 @@ const unsigned char* printQueryResponse(const unsigned char* recv_b)
 	bailOut(4, "ERROR: Not attempting to parse additional page.\n");      
       }
       
-      security_in_use = (recv_b[TABLEAU_HEADER_LEN+2] & 0x20) ? true : false;
-      security_support = (recv_b[TABLEAU_HEADER_LEN+2] & 0x10) ? true : false;
-      hpa_in_use = (recv_b[TABLEAU_HEADER_LEN+2] & 0x08) ? true : false;
-      hpa_support = (recv_b[TABLEAU_HEADER_LEN+2] & 0x04) ? true : false;
-      dco_in_use = (recv_b[TABLEAU_HEADER_LEN+2] & 0x02) ? true : false;
-      dco_support = (recv_b[TABLEAU_HEADER_LEN+2] & 0x01) ? true : false;
+      security_in_use = (recv_b[next_page_off+2] & 0x20) ? true : false;
+      security_support = (recv_b[next_page_off+2] & 0x10) ? true : false;
+      hpa_in_use = (recv_b[next_page_off+2] & 0x08) ? true : false;
+      hpa_support = (recv_b[next_page_off+2] & 0x04) ? true : false;
+      dco_in_use = (recv_b[next_page_off+2] & 0x02) ? true : false;
+      dco_support = (recv_b[next_page_off+2] & 0x01) ? true : false;
+      
+      hpa_disable_err_code = recv_b[next_page_off+3] & 0x0F;
       
       printf("security_in_use: %s\n", security_in_use ? "TRUE" : "FALSE");
       printf("security_support: %s\n", security_support ? "TRUE" : "FALSE");
@@ -291,27 +300,30 @@ const unsigned char* printQueryResponse(const unsigned char* recv_b)
       printf("dco_in_use: %s\n", dco_in_use ? "TRUE" : "FALSE");
       printf("dco_support: %s\n", dco_support ? "TRUE" : "FALSE");
       
-      drive_capacity = (recv_b[TABLEAU_HEADER_LEN+8] << 24)
-	| (recv_b[TABLEAU_HEADER_LEN+9] << 16)
-	| (recv_b[TABLEAU_HEADER_LEN+10] << 8)
-	| recv_b[TABLEAU_HEADER_LEN+11];
+      drive_capacity = (recv_b[next_page_off+8] << 24)
+	| (recv_b[next_page_off+9] << 16)
+	| (recv_b[next_page_off+10] << 8)
+	| recv_b[next_page_off+11];
       printf("drive_capacity: %u\n", drive_capacity);
       
-      hpa_capacity = (recv_b[TABLEAU_HEADER_LEN+16] << 24)
-	| (recv_b[TABLEAU_HEADER_LEN+17] << 16)
-	| (recv_b[TABLEAU_HEADER_LEN+18] << 8)
-	| recv_b[TABLEAU_HEADER_LEN+19];
+      hpa_capacity = (recv_b[next_page_off+16] << 24)
+	| (recv_b[next_page_off+17] << 16)
+	| (recv_b[next_page_off+18] << 8)
+	| recv_b[next_page_off+19];
       printf("hpa_capacity: %u\n", hpa_capacity);
       
-      dco_capacity = (recv_b[TABLEAU_HEADER_LEN+24] << 24)
-	| (recv_b[TABLEAU_HEADER_LEN+25] << 16)
-	| (recv_b[TABLEAU_HEADER_LEN+26] << 8)
-	| recv_b[TABLEAU_HEADER_LEN+27];
+      dco_capacity = (recv_b[next_page_off+24] << 24)
+	| (recv_b[next_page_off+25] << 16)
+	| (recv_b[next_page_off+26] << 8)
+	| recv_b[next_page_off+27];
       printf("dco_capacity: %u\n", dco_capacity);
 
       if(dco_capacity != hpa_capacity)
-	ret_val = recv_b+(TABLEAU_HEADER_LEN+28);
-
+	ret_val = recv_b+(next_page_off+28);
+      
+      if(hpa_disable_err_code != 0)
+	fprintf(stderr, "WARNING: HPA section could not be automatically, "
+		"temporarily disabled!  Error code: %d\n",hpa_disable_err_code);
       break;
 
     default:
