@@ -286,10 +286,10 @@ const unsigned char* printQueryResponse(const unsigned char* recv_b)
       
       security_in_use = (recv_b[next_page_off+2] & 0x20) ? true : false;
       security_support = (recv_b[next_page_off+2] & 0x10) ? true : false;
-      hpa_in_use = (recv_b[next_page_off+2] & 0x08) ? true : false;
-      hpa_support = (recv_b[next_page_off+2] & 0x04) ? true : false;
-      dco_in_use = (recv_b[next_page_off+2] & 0x02) ? true : false;
-      dco_support = (recv_b[next_page_off+2] & 0x01) ? true : false;
+      dco_in_use = (recv_b[next_page_off+2] & 0x08) ? true : false;
+      dco_support = (recv_b[next_page_off+2] & 0x04) ? true : false;
+      hpa_in_use = (recv_b[next_page_off+2] & 0x02) ? true : false;
+      hpa_support = (recv_b[next_page_off+2] & 0x01) ? true : false;
       
       hpa_disable_err_code = recv_b[next_page_off+3] & 0x0F;
       
