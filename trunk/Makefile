@@ -16,7 +16,7 @@ CC=gcc
 OPTS=-std=gnu89 -pedantic -Wall
 
 
-all: build/bin/tableau-parm
+all: build/bin/tableau-parm build/man/man1/tableau-parm.1.gz
 
 
 build/bin:
@@ -25,9 +25,14 @@ build/bin:
 build/bin/tableau-parm: build/bin src/tableau-parm.c Makefile
 	$(CC) $(OPTS) -o $@ src/tableau-parm.c
 
+build/doc/man/man1/tableau-parm.1.gz: doc/man/man1/tableau-parm.1.gz
+	mkdir -p build/doc/man/man1
+	cp doc/man/man1/tableau-parm.1.gz $@
 
 install: all
 	install -D build/bin/tableau-parm $(BIN_PREFIX)/tableau-parm
+	cp -r build/doc/* $(DOC_PREFIX)
+	ln -sf $(DOC_PREFIX)/man/man1/* $(MAN_PREFIX)/man1
 
 
 clean:
