@@ -49,18 +49,18 @@
 void usage()
 {
   fprintf(stderr, "Usage: tableau-parm [-r] <DEVICE>\n");
-  fprintf(stderr, "Version: 0.1.0\n");
-  fprintf(stderr, "\tDEVICE\t\tA SCSI block device, such as /dev/sd?\n");
+  fprintf(stderr, "Version: 0.1.0\n\n");
+  fprintf(stderr, "\tDEVICE\t\tA SCSI block device, such as /dev/sd?\n\n");
   fprintf(stderr, "\t-r\t\tRemoves DCO (and possibly HPA) from the device.\n");
   fprintf(stderr, "\t\t\tTHIS WILL MODIFY THE STATE OF THE DEVICE!!\n");
-  fprintf(stderr, "\n\n");
+  fprintf(stderr, "\n");
   fprintf(stderr, "Copyright (C) 2007 Timothy D. Morgan\n");
-  fprintf(stderr, "Copyright (C) 1999,2001 D. Gilbert\n");
+  fprintf(stderr, "Copyright (C) 1999,2001 D. Gilbert\n\n");
   fprintf(stderr, "This program comes with ABSOLUTELY NO WARRANTY.\n");
   fprintf(stderr, "This is free software, and you are welcome to redistribute it\n");
   fprintf(stderr, "under the conditions of the GNU Public License, version 3.\n");
   fprintf(stderr, "For more information, see the LICENSE file included in this\n");
-  fprintf(stderr, "software distribution, or http://www.gnu.org/licenses/.\n");
+  fprintf(stderr, "software distribution, or http://www.gnu.org/licenses/.\n\n");
 }
 
 void bailOut(int code, char* message)
