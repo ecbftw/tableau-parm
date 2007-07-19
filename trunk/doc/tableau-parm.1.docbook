@@ -23,7 +23,8 @@
   <refsect1 id='description'>
     <title>DESCRIPTION</title>
     <para>
-        tableau-parm is designed to interact with write-blocking forensics 
+        <command>tableau-parm</command> is designed to interact with 
+        write-blocking forensics 
         bridges produced by Tableau, LLC.  It can be used to query bridges
         for various bridge and device data, as well as to disable DCO regions.
     </para>
@@ -42,7 +43,8 @@
         </term>
         <listitem>
 	  <para>
-	    Directs tableau-parm to permanently remove a DCO, if it exists.  
+	    Directs <command>tableau-parm</command> to permanently remove 
+            a DCO, if it exists.  
             THIS WILL MODIFY THE STATE OF THE DRIVE. USE AT YOUR OWN RISK!
             (It is recommended for forensics investigations, that a full 
             drive image be taken before this command is run, and then again 
