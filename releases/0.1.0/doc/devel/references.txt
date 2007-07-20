@@ -1,0 +1,2 @@
+* SCSI Operation Codes
+  http://www.t10.org/lists/op-num.txt

@@ -1,0 +1,45 @@
+tableau-parm Installation
+=========================
+
+Prerequisites
+-------------
+
+This package doesn't require much for installation.  Just what typically
+comes with any free operating system.  Be sure you have:
+
+ - Linux (currently not ported to other UN*X systems)
+ - /usr/include/scsi/sg.h  (on Debian, comes with libc6-dev package)
+ - Make
+ - GCC
+
+
+Survival Commands
+-----------------
+
+make
+# and as root
+make install
+
+
+Advanced Installation
+---------------------
+To install in a custom directory, simply change one or more of the
+following make variables to suit your needs:
+
+ PREFIX      Top level install directory.  Used as base for rest unless
+             they too are overridden. (This defaults to /usr/local)
+
+ BIN_PREFIX  Location for executable programs to be installed.
+
+ DOC_PREFIX  Location for documentation.
+
+ MAN_PREFIX  A path in the MANPATH.
+
+
+Use the following syntax (with GNU Make) to override a variable:
+
+# as root
+make VAR=value install
+
+
+For more information, see the Makefiles.
