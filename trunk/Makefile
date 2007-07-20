@@ -31,6 +31,7 @@ build/doc/man/man1/tableau-parm.1.gz: doc/man/man1/tableau-parm.1.gz
 
 install: all
 	install -D build/bin/tableau-parm $(BIN_PREFIX)/tableau-parm
+	mkdir -p $(DOC_PREFIX)
 	cp -r build/doc/man $(DOC_PREFIX)
 	ln -sf $(DOC_PREFIX)/man/man1/* $(MAN_PREFIX)/man1
 
