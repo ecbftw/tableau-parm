@@ -10,7 +10,7 @@ SUB_DIRS=$(wildcard releases/*) trunk
 export
 
 
-RELEASE_NAME=tableau-parm-test
+RELEASE_NAME=tableau-parm-trunk
 RELEASE_DEST=.
 
 all:
