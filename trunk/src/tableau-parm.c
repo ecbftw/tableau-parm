@@ -73,8 +73,8 @@ void bailOut(int code, char* message)
 
 /* Returns a newly malloc()ed string which contains original buffer,
  * except for non-printable or special characters are quoted in hex
- * with the syntax '\xQQ' where QQ is the hex ascii value of the quoted
- * character.  A null terminator is added, since only ascii, not binary,
+ * with the syntax '%QQ' where QQ is the hex value of the quoted
+ * character.  A NUL terminator is added, since only ascii, not binary,
  * is returned.
  */
 static char* quote_buffer(const unsigned char* str, 
@@ -101,12 +101,12 @@ static char* quote_buffer(const unsigned char* str,
        * reallocs() and the amount of wasted memory.
        */
       added_len = (len-i)*num_written/(i+1);
-      if((buf_len+added_len) > (len*4+1))
-        buf_len = len*4+1;
+      if((buf_len+added_len) > (len*3+1))
+        buf_len = len*3+1;
       else
       {
-        if (added_len < 5)
-          buf_len += 5;
+        if (added_len < 4)
+          buf_len += 4;
         else
           buf_len += added_len;
       }
@@ -120,10 +120,11 @@ static char* quote_buffer(const unsigned char* str,
       ret_val = tmp_buf;
     }
     
-    if(str[i] < 32 || str[i] > 126 || strchr(special, str[i]) != NULL)
+    if(str[i] < 32 || str[i] > 126 || str[i] == '%' 
+       || strchr(special, str[i]) != NULL)
     {
       num_written += snprintf(ret_val + num_written, buf_len - num_written,
-                              "\\x%.2X", str[i]);
+                              "%%%.2X", str[i]);
     }
     else
       ret_val[num_written++] = str[i];
@@ -134,14 +135,20 @@ static char* quote_buffer(const unsigned char* str,
 }
 
 
-/* Trims spaces off of string fields and quotes any non-printables. */
+/* Trims spaces off of beginning and end of string fields and
+ * quotes any non-printables.
+ */
 char* convertStringField(const unsigned char* f, unsigned short flen)
 {
   int i;
   for(i=flen-1; (i >= 0) && (f[i] == ' '); i--)
     continue;
 
-  return quote_buffer(f, i+1, "");
+  flen = i+1;
+  for(; (flen > 0) && (f[0] == ' '); flen--,f++)
+    continue;
+
+  return quote_buffer(f, flen, "");
 }
 
 
@@ -163,7 +170,6 @@ const unsigned char* printQueryResponse(const unsigned char* recv_b)
   bool declare_write_blocked;
   bool declare_write_errors;
 
-  /*char* bridge_serial;*/
   char* bridge_vendor;
   char* bridge_model;
   char* firmware_date;
@@ -323,7 +329,7 @@ const unsigned char* printQueryResponse(const unsigned char* recv_b)
 	ret_val = recv_b+(next_page_off+28);
       
       if(hpa_disable_err_code != 0)
-	fprintf(stderr, "WARNING: HPA section could not be automatically, "
+	fprintf(stderr, "WARN: HPA section could not be automatically, "
 		"temporarily disabled!  Error code: %d\n",hpa_disable_err_code);
       break;
 
@@ -343,18 +349,15 @@ const unsigned char* printQueryResponse(const unsigned char* recv_b)
 int sendCommand(int sg_fd, 
 		unsigned char* cmd_block, unsigned int cmd_block_len,
 		unsigned char* recv_b, unsigned int recv_len,
-		unsigned char* sense_b, unsigned int sense_len)
+		unsigned char* sense_b, unsigned int sense_len,
+		bool verbose)
 {
-  
-  int res, resid, cat, got, slen;
+  int res, resid, cat, slen;
   char err_b[512];
-  int verbose = 1;
   struct sg_pt_base* ptvp;
   
-  memset(recv_b, 0, recv_len);
-  memset(sense_b, 0, sense_len);
-  
-  ptvp = construct_scsi_pt_obj();     /* one object per command */
+  /* one object per command */  
+  ptvp = construct_scsi_pt_obj();
   if (NULL == ptvp) 
   {
     fprintf(stderr, "ERROR: construct_scsi_pt_obj failed. "
@@ -385,58 +388,51 @@ int sendCommand(int sg_fd,
   }
 
   resid = get_scsi_pt_resid(ptvp);
+  if (verbose && (resid > 0))
+    fprintf(stderr, "WARN: Requested %d bytes but got %d bytes)\n", 
+	    recv_len, recv_len - resid);
+
   switch ((cat = get_scsi_pt_result_category(ptvp))) 
   {
   case SCSI_PT_RESULT_GOOD:
-    got = recv_len - resid;
-    if (verbose && (resid > 0))
-      fprintf(stderr, "WARNING: Requested %d bytes but "
-	      "got %d bytes)\n", recv_len, got);
     break;
     
-  case SCSI_PT_RESULT_STATUS: /* other than GOOD and CHECK CONDITION */
-    if (verbose) {
-      sg_get_scsi_status_str(get_scsi_pt_status_response(ptvp),
-			     sizeof(err_b), err_b);
-      fprintf(stderr, "INFO: SCSI status: %s\n", err_b);
+  /* other than GOOD and CHECK CONDITION */
+  case SCSI_PT_RESULT_STATUS: 
+    if (verbose)
+    {
+      sg_get_scsi_status_str(get_scsi_pt_status_response(ptvp), sizeof(err_b), err_b);
+      fprintf(stderr, "WARN: SCSI status: %s\n", err_b);
     }
     break;
     
   case SCSI_PT_RESULT_SENSE:
-    if (verbose) 
+    if (verbose)
     {
       slen = get_scsi_pt_sense_len(ptvp);
-      sg_get_sense_str("", sense_b, slen, 1,
-		       sizeof(err_b), err_b);
-      fprintf(stderr, "INFO: Sense string: %s\n", err_b);
-      
-      if(resid > 0)
-      {
-	got = recv_len - resid;
-	if (got > 0)
-	  fprintf(stderr, "WARNING: Requested %d bytes but "
-		  "got %d bytes\n", recv_len, got);
-      }
+      sg_get_sense_str("", sense_b, slen, 1, sizeof(err_b), err_b);
+      fprintf(stderr, "WARN: Sense string: %s\n", err_b);
     }
     break;
     
   case SCSI_PT_RESULT_TRANSPORT_ERR:
-    if (verbose) {
+    if (verbose)
+    {
       get_scsi_pt_transport_err_str(ptvp, sizeof(err_b), err_b);
-      fprintf(stderr, "INFO: Transport: %s\n", err_b);
+      fprintf(stderr, "WARN: Transport error: %s\n", err_b);
     }
     break;
     
   case SCSI_PT_RESULT_OS_ERR:
-    if (verbose) {
+    if (verbose)
+    {
       get_scsi_pt_os_err_str(ptvp, sizeof(err_b), err_b);
-      fprintf(stderr, "INFO: os: %s\n", err_b);
+      fprintf(stderr, "WARN: OS Error: %s\n", err_b);
     }
     break;
     
   default:
-    fprintf(stderr, "ERROR: Unknown pass through result "
-	    "category (%d)\n", cat);
+    fprintf(stderr, "ERROR: Unknown pass through result category (%d)\n", cat);
     break;
   }
 
@@ -487,7 +483,8 @@ int main(int argc, char** argv)
   }
 
   cmd_ret = sendCommand(sg_fd, tableau_query_cmd, 6, 
-			recv_b, RECV_LEN, sense_b, SENSE_LEN);
+			recv_b, RECV_LEN, sense_b, SENSE_LEN,
+			true);
 
   if(cmd_ret != 0)
     bailOut(cmd_ret, "ERROR: Query command failed.\n");    
@@ -510,7 +507,8 @@ int main(int argc, char** argv)
       tableau_dco_restore_cmd[8] = dco_challenge_key[3];
       
       cmd_ret = sendCommand(sg_fd, tableau_dco_restore_cmd, 12, 
-			    recv_b, RECV_LEN, sense_b, SENSE_LEN);
+			    recv_b, RECV_LEN, sense_b, SENSE_LEN,
+			    true);
 
       if(cmd_ret != 0)
 	bailOut(cmd_ret, "ERROR: DCO restore command failed.\n");
