@@ -7,8 +7,8 @@
  * provided by Tableau, LLC. (http://www.tableau.com/)  Tableau does not
  * endorse or warrant this software in any way.
  *
- * Copyright (C) 2007 Timothy D. Morgan
- * Copyright (C) 1999,2001 D. Gilbert
+ * Copyright (C) 2007,2009 Timothy D. Morgan
+ * Copyright (C) 1999,2001,2006,2007 D. Gilbert
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,8 +34,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
-#include <scsi/sg.h>
 
+#include <scsi/sg_lib.h>
+#include <scsi/sg_pt.h>
 
 #define TABLEAU_SCSI_CMD 0xEC
 #define TABLEAU_HEADER_LEN 120
@@ -44,18 +45,18 @@
 
 #define SENSE_LEN 64
 #define RECV_LEN 255
-
+#define CMD_TIMEOUT_SECS 20
 
 void usage()
 {
   fprintf(stderr, "Usage: tableau-parm [-r] <DEVICE>\n");
-  fprintf(stderr, "Version: 0.1.0\n\n");
+  fprintf(stderr, "Version: 0.2.0\n\n");
   fprintf(stderr, "\tDEVICE\t\tA SCSI block device, such as /dev/sd?\n\n");
   fprintf(stderr, "\t-r\t\tRemoves DCO (and possibly HPA) from the device.\n");
   fprintf(stderr, "\t\t\tTHIS WILL MODIFY THE STATE OF THE DEVICE!!\n");
   fprintf(stderr, "\n");
-  fprintf(stderr, "Copyright (C) 2007 Timothy D. Morgan\n");
-  fprintf(stderr, "Copyright (C) 1999,2001 D. Gilbert\n\n");
+  fprintf(stderr, "Copyright (C) 2007,2009 Timothy D. Morgan\n");
+  fprintf(stderr, "Copyright (C) 1999,2001,2006,2007 D. Gilbert\n\n");
   fprintf(stderr, "This program comes with ABSOLUTELY NO WARRANTY.\n");
   fprintf(stderr, "This is free software, and you are welcome to redistribute it\n");
   fprintf(stderr, "under the conditions of the GNU Public License, version 3.\n");
@@ -339,64 +340,113 @@ const unsigned char* printQueryResponse(const unsigned char* recv_b)
 }
 
 
-int sendCommand(int dev_fd, 
+int sendCommand(int sg_fd, 
 		unsigned char* cmd_block, unsigned int cmd_block_len,
 		unsigned char* recv_b, unsigned int recv_len,
 		unsigned char* sense_b, unsigned int sense_len)
 {
-  struct sg_io_hdr io_hdr;
-  unsigned int i;
-
+  
+  int res, resid, cat, got, slen;
+  char err_b[512];
+  int verbose = 1;
+  struct sg_pt_base* ptvp;
+  
   memset(recv_b, 0, recv_len);
   memset(sense_b, 0, sense_len);
-  memset(&io_hdr, 0, sizeof(struct sg_io_hdr));
-  io_hdr.interface_id = 'S';
-  io_hdr.cmdp = cmd_block;
-  io_hdr.cmd_len = cmd_block_len;
-  io_hdr.sbp = sense_b;
-  io_hdr.mx_sb_len = sense_len;
-  io_hdr.dxferp = recv_b;
-  io_hdr.dxfer_len = recv_len;
-  /*io_hdr.dxfer_direction = (cmd_block_len == 6) ? SG_DXFER_FROM_DEV : SG_DXFER_TO_FROM_DEV;*/
-  io_hdr.dxfer_direction = SG_DXFER_FROM_DEV;
-  io_hdr.timeout = 30000; /* 30 sec */
-
-  if (ioctl(dev_fd, SG_IO, &io_hdr) < 0) 
+  
+  ptvp = construct_scsi_pt_obj();     /* one object per command */
+  if (NULL == ptvp) 
   {
-    perror("ERROR: ioctl failed");
-    fprintf(stderr, "ERROR: Could not query device.\n");
-    return 3;
+    fprintf(stderr, "ERROR: construct_scsi_pt_obj failed. "
+	            "Memory allocation failure likely.\n");
+    return -1;
   }
 
-  /* Check for errors coming from the device */
-  if ((io_hdr.info & SG_INFO_OK_MASK) != SG_INFO_OK) 
+  set_scsi_pt_cdb(ptvp, cmd_block, cmd_block_len);
+  set_scsi_pt_sense(ptvp, sense_b, sense_len);
+  set_scsi_pt_data_in(ptvp, recv_b, recv_len);
+  res = do_scsi_pt(ptvp, sg_fd, CMD_TIMEOUT_SECS, 0);
+  if (res < 0)
   {
-    if (io_hdr.sb_len_wr > 0) 
-    {
-      fprintf(stderr, "ERROR: INQUIRY sense data:");
-      for (i = 0; i < io_hdr.sb_len_wr; i++)
-      {
-	if((i % 16) == 0)
-	  fprintf(stderr, "\n");
-	fprintf(stderr, " %.2X", sense_b[i]);
-      }
-      fprintf(stderr, "\n");
+    fprintf(stderr, "ERROR: do_scsi_pt returned: %s\n", strerror(-res));
+    goto error;
+  }
+  
+  if (SCSI_PT_DO_BAD_PARAMS == res)
+  {
+    fprintf(stderr, "ERROR: do_scsi_pt returned SCSI_PT_DO_BAD_PARAMS.\n");
+    goto error;
+  }
+
+  if (SCSI_PT_DO_TIMEOUT == res)
+  {
+    fprintf(stderr, "ERROR: do_scsi_pt returned SCSI_PT_DO_TIMEOUT.\n");
+    goto error;
+  }
+
+  resid = get_scsi_pt_resid(ptvp);
+  switch ((cat = get_scsi_pt_result_category(ptvp))) 
+  {
+  case SCSI_PT_RESULT_GOOD:
+    got = recv_len - resid;
+    if (verbose && (resid > 0))
+      fprintf(stderr, "WARNING: Requested %d bytes but "
+	      "got %d bytes)\n", recv_len, got);
+    break;
+    
+  case SCSI_PT_RESULT_STATUS: /* other than GOOD and CHECK CONDITION */
+    if (verbose) {
+      sg_get_scsi_status_str(get_scsi_pt_status_response(ptvp),
+			     sizeof(err_b), err_b);
+      fprintf(stderr, "INFO: SCSI status: %s\n", err_b);
     }
-    if (io_hdr.masked_status)
-      fprintf(stderr, "ERROR: INQUIRY SCSI status=%X\n", io_hdr.status);
-    if (io_hdr.host_status)
-      fprintf(stderr, "ERROR: INQUIRY host_status=%X\n", io_hdr.host_status);
-    if (io_hdr.driver_status)
-      fprintf(stderr, "ERROR: INQUIRY driver_status=%X\n", io_hdr.driver_status);
+    break;
+    
+  case SCSI_PT_RESULT_SENSE:
+    if (verbose) 
+    {
+      slen = get_scsi_pt_sense_len(ptvp);
+      sg_get_sense_str("", sense_b, slen, 1,
+		       sizeof(err_b), err_b);
+      fprintf(stderr, "INFO: Sense string: %s\n", err_b);
+      
+      if(resid > 0)
+      {
+	got = recv_len - resid;
+	if (got > 0)
+	  fprintf(stderr, "WARNING: Requested %d bytes but "
+		  "got %d bytes\n", recv_len, got);
+      }
+    }
+    break;
+    
+  case SCSI_PT_RESULT_TRANSPORT_ERR:
+    if (verbose) {
+      get_scsi_pt_transport_err_str(ptvp, sizeof(err_b), err_b);
+      fprintf(stderr, "INFO: Transport: %s\n", err_b);
+    }
+    break;
+    
+  case SCSI_PT_RESULT_OS_ERR:
+    if (verbose) {
+      get_scsi_pt_os_err_str(ptvp, sizeof(err_b), err_b);
+      fprintf(stderr, "INFO: os: %s\n", err_b);
+    }
+    break;
+    
+  default:
+    fprintf(stderr, "ERROR: Unknown pass through result "
+	    "category (%d)\n", cat);
+    break;
+  }
 
-    fprintf(stderr, "ERROR: SCSI response not OK.  Cannot continue.\n");
-    return 5;
-  }  
-
+  destruct_scsi_pt_obj(ptvp);
   return 0;
+
+ error:
+  destruct_scsi_pt_obj(ptvp);
+  return 1;
 }
-
-
 
 
 int main(int argc, char** argv)
@@ -429,11 +479,11 @@ int main(int argc, char** argv)
   /* XXX: What if this isn't a tableau device?
    *      Can we detect this before we query? 
    */
-  sg_fd = open(dev_file, O_RDONLY);
-  if(sg_fd == -1)
-  {
-    perror("ERROR: open failed");
-    bailOut(3, "ERROR: Could not open device.\n");
+  sg_fd = scsi_pt_open_device(dev_file, 0 /* rw */, 0);
+  if (sg_fd < 0) {
+    fprintf(stderr, "ERROR: scsi_pt_open_device failed on '%s' with: %s\n",
+	    dev_file, strerror(-sg_fd));
+    return 1;
   }
 
   cmd_ret = sendCommand(sg_fd, tableau_query_cmd, 6, 
@@ -471,8 +521,8 @@ int main(int argc, char** argv)
     }
     else
       printf("\n## DCO removal requested, but DCO no found! Quitting. ##\n");
-  }
-  close(sg_fd);
+  }  
+  scsi_pt_close_device(sg_fd);
 
   return 0;
 }
