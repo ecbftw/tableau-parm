@@ -124,10 +124,10 @@
   <refsect1 id='credits'>
     <title>CREDITS</title>
     <para>
-      Copyright (C) 2007 Timothy D. Morgan
+      Copyright (C) 2007,2009 Timothy D. Morgan
     </para>
     <para>
-      Copyright (C) 1999,2001 D. Gilbert
+      Copyright (C) 1999,2001,2006,2007 D. Gilbert
     </para>
     <para>
       <command>tableau-parm</command> was written by Timothy D. Morgan using 
