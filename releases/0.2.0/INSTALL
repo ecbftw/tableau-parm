@@ -1,0 +1,93 @@
+tableau-parm Installation
+=========================
+
+Prerequisites
+-------------
+
+This package doesn't require much for installation.  Just what typically
+comes with any free operating system.  Be sure you have:
+
+ - sg3_utils header files and libraries
+     See: http://sg.danny.cz/sg/sg3_utils.html
+ - Linux or FreeBSD 
+     Other platforms supported by sg3_utils may work, but haven't been tested
+ - Make
+ - GCC
+
+
+Survival Commands
+-----------------
+
+make
+# and as root
+make install
+
+
+Linux Notes
+-----------
+
+First ensure sg3_utils is installed.  
+
+Under Debian, 'apt-get install sg3_utils' should be sufficient.
+In general, you should see the following files available on your
+system if you have the prerequisites installed correctly:
+  /usr/lib/libsgutils.so
+  /usr/include/scsi/sg_lib.h
+  /usr/include/scsi/sg_pt.h
+
+Tableau devices have only been tested over Firewire and USB.  You
+should be able to run tableau-parm directly on disk devices, such as
+/dev/sda.
+
+
+FreeBSD Notes
+-------------
+
+First make sure your kernel supports the new SCSI generic (sg)
+interface for SCSI devices.  During testing (which has only occurred
+on FreeBSD 7.2-RELEASE), it was necessary to add the following lines
+to the GENERIC kernel configuration:
+  device          atapicam
+  device          sg
+
+Once you recompile and reboot, you should see two new devices named
+'/dev/sg?' for each SCSI-like disk device on your system.  For
+instance, on my test system, my main system disk had /dev/sg0 and
+/dev/sga associated with it.  Adding a USB drive created /dev/da0 and
+associated /dev/sg1 and /dev/sg0.  I don't yet know of a way to check
+to find out what base device an sg? device is associated with.  In any
+case, using tableau-parm on sgN devices (where N is an integer) and
+directly on the base block device (such as /dev/da0) worked fine during
+preliminary testing.
+
+Once you have generic SCSI support, be sure sg3_utils is installed.
+There's a port under /usr/ports/sysutils/sg3_utils for the package.
+To ensure it is installed correctly, just check to make sure the
+following files exist:
+  /usr/local/lib/libsgutils.so
+  /usr/local/include/scsi/sg_lib.h
+  /usr/local/include/scsi/sg_pt.h
+
+
+Advanced Installation
+---------------------
+To install in a custom directory, simply change one or more of the
+following make variables to suit your needs:
+
+ PREFIX      Top level install directory.  Used as base for rest unless
+             they too are overridden. (This defaults to /usr/local)
+
+ BIN_PREFIX  Location for executable programs to be installed.
+
+ DOC_PREFIX  Location for documentation.
+
+ MAN_PREFIX  A path in the MANPATH.
+
+
+Use the following syntax (with GNU Make) to override a variable:
+
+# as root
+make VAR=value install
+
+
+For more information, see the Makefiles.
