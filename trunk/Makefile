@@ -23,7 +23,7 @@ build/bin:
 	mkdir -p build/bin
 
 build/bin/tableau-parm: build/bin src/tableau-parm.c Makefile
-	$(CC) $(OPTS) -o $@ -I/usr/local/include -L/usr/local/lib -lsgutils src/tableau-parm.c
+	$(CC) $(OPTS) -o $@ -I/usr/local/include -L/usr/local/lib -lsgutils2 src/tableau-parm.c
 
 build/doc/man/man1/tableau-parm.1.gz: doc/man/man1/tableau-parm.1.gz
 	mkdir -p build/doc/man/man1

@@ -66,7 +66,7 @@ void usage()
 
 void bailOut(int code, char* message)
 {
-  fprintf(stderr, message);
+  fprintf(stderr, "%s", message);
   exit(code);
 }
 
