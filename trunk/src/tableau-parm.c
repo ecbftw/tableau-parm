@@ -475,7 +475,7 @@ int main(int argc, char** argv)
   /* XXX: What if this isn't a tableau device?
    *      Can we detect this before we query? 
    */
-  sg_fd = scsi_pt_open_device(dev_file, 0 /* rw */, 0);
+  sg_fd = scsi_pt_open_device(dev_file, 1 /* ro */, 0);
   if (sg_fd < 0) {
     fprintf(stderr, "ERROR: scsi_pt_open_device failed on '%s' with: %s\n",
 	    dev_file, strerror(-sg_fd));
